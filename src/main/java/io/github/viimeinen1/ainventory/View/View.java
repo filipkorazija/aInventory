@@ -357,6 +357,19 @@ public class View implements InventoryHolder {
     }
 
     /**
+     * Remove storage on next tick if the slot is empty by then, taking items can leave some in the slot.
+     *
+     * @param slot slot
+     * @param subSlot SubSlot in that slot
+     */
+    private void clearStorageIfEmpty(int slot, Slot.SubSlot subSlot) {
+        Bukkit.getScheduler().runTask(JavaPlugin.getProvidingPlugin(View.class), () -> {
+            var item = this.inventory.getItem(slot);
+            if (getCurrent(slot) == subSlot && (item == null || item.isEmpty())) subSlot.storage = null;
+        });
+    }
+
+    /**
      * Change storage recipient and/or item. If null is given to item or uuid, the previous value will be used.
      *
      * @param slot slot to change
@@ -629,8 +642,8 @@ public class View implements InventoryHolder {
                     if (slot.preventModification) event.setCancelled(true);
                     if (slot.action != null) slot.action.run(event);
 
-                    // if we took an item, storage has to be false
-                    if (!event.isCancelled()) slot.storage = null;
+                    // if we took everything, storage has to be false
+                    if (!event.isCancelled()) clearStorageIfEmpty(event.getSlot(), slot);
                 }
             }
 
@@ -706,8 +719,8 @@ public class View implements InventoryHolder {
                     if (slot.preventModification) event.setCancelled(true);
                     if (slot.action != null) slot.action.run(event);
 
-                    // if we took an item, storage has to be false
-                    if (!event.isCancelled()) slot.storage = null;
+                    // if we took everything, storage has to be false
+                    if (!event.isCancelled()) clearStorageIfEmpty(event.getSlot(), slot);
                 }
             }
 
@@ -730,8 +743,8 @@ public class View implements InventoryHolder {
                     if (slot.preventModification) event.setCancelled(true);
                     if (slot.action != null) slot.action.run(event);
 
-                    // if we took an item, storage has to be false
-                    if (!event.isCancelled()) slot.storage = null;
+                    // if we took everything, storage has to be false
+                    if (!event.isCancelled()) clearStorageIfEmpty(event.getSlot(), slot);
                 }
             }
 
@@ -994,8 +1007,8 @@ public class View implements InventoryHolder {
             if (slot.requirement != null && !slot.requirement.isAllowed(transferStack)) return false;
             if (slot.preventPlace || slot.preventModification) return false;
 
-            // not onto the builder item
-            if (!empty && slot.storage == null) return false;
+            // placeholder, goes on top
+            if (slot.storage == null) return true;
             return fits;
         }).map(Map.Entry::getKey).toList();
 
@@ -1016,7 +1029,7 @@ public class View implements InventoryHolder {
             }
 
             int addition;
-            if (curr == null || curr.isEmpty()) {
+            if (curr == null || curr.isEmpty() || subSlot != null && subSlot.storage == null) {
                 addition = Math.min(inventory.getMaxStackSize(), remain);
                 inventory.setItem(slot, transferStack.asQuantity(addition));
                 if (subSlot != null) subSlot.storage = event.getWhoClicked().getUniqueId();
@@ -1058,9 +1071,6 @@ public class View implements InventoryHolder {
                 if (subSlot != null) {
                     if (subSlot.requirement != null && !subSlot.requirement.isAllowed(event.getOldCursor())) continue;
                     if (subSlot.preventPlace || subSlot.preventModification) continue;
-                    // skip builder items
-                    var current = event.getView().getItem(slot);
-                    if (subSlot.storage == null && current != null && !current.isEmpty()) continue;
                     // all slots after here should get added to
                     if (subSlot.action != null) {
                         var e = new InventoryClickEvent(event.getView(), InventoryType.SlotType.CONTAINER, slot, ClickType.UNKNOWN, InventoryAction.PLACE_SOME);
@@ -1082,7 +1092,9 @@ public class View implements InventoryHolder {
             var slotInv = event.getView().getInventory(slot);
             if (slotInv != null) {
                 int convertedSlot = event.getView().convertSlot(slot);
+                var subSlot = slotInv.equals(event.getView().getTopInventory()) ? getCurrent(convertedSlot) : null;
                 var oldSlot = slotInv.getItem(convertedSlot);
+                if (subSlot != null && subSlot.storage == null) oldSlot = null;
                 if (oldSlot != null && !oldSlot.isEmpty()) {
                     int amount = oldSlot.getAmount() + amountPerSlot;
                     if (amount > oldSlot.getMaxStackSize()) {
@@ -1095,10 +1107,7 @@ public class View implements InventoryHolder {
                 }
 
                 // if we placed an item, we set storage
-                if (slotInv.equals(event.getView().getTopInventory())) {
-                    var subSlot = getCurrent(convertedSlot);
-                    if (subSlot != null) subSlot.storage = event.getWhoClicked().getUniqueId();
-                }
+                if (subSlot != null) subSlot.storage = event.getWhoClicked().getUniqueId();
             }
         }
 
