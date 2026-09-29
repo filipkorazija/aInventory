@@ -357,16 +357,37 @@ public class View implements InventoryHolder {
     }
 
     /**
-     * Remove storage on next tick if the slot is empty by then, taking items can leave some in the slot.
+     * If this click will take the whole stack out of the clicked slot.
      *
-     * @param slot slot
-     * @param subSlot SubSlot in that slot
+     * @param event click event
+     * @return true if nothing is left in the slot after the click
      */
-    private void clearStorageIfEmpty(int slot, Slot.SubSlot subSlot) {
-        Bukkit.getScheduler().runTask(JavaPlugin.getProvidingPlugin(View.class), () -> {
-            var item = this.inventory.getItem(slot);
-            if (getCurrent(slot) == subSlot && (item == null || item.isEmpty())) subSlot.storage = null;
-        });
+    private boolean takesAll(InventoryClickEvent event) {
+        var item = event.getCurrentItem();
+        if (item == null || item.isEmpty()) return true;
+        return switch (event.getAction()) {
+            case PICKUP_ALL, DROP_ALL_SLOT -> true;
+            case PICKUP_HALF, DROP_ONE_SLOT -> item.getAmount() == 1;
+            case MOVE_TO_OTHER_INVENTORY -> roomFor(item, event.getWhoClicked()) >= item.getAmount();
+            // only happens with oversized stacks, some always stays
+            default -> false;
+        };
+    }
+
+    /**
+     * How many of this item fit into the player's inventory.
+     *
+     * @param item item
+     * @param player player
+     * @return amount that fits
+     */
+    private int roomFor(ItemStack item, HumanEntity player) {
+        int room = 0;
+        for (var content : player.getInventory().getStorageContents()) {
+            if (content == null || content.isEmpty()) room += item.getMaxStackSize();
+            else if (content.isSimilar(item)) room += Math.max(0, content.getMaxStackSize() - content.getAmount());
+        }
+        return room;
     }
 
     /**
@@ -643,7 +664,7 @@ public class View implements InventoryHolder {
                     if (slot.action != null) slot.action.run(event);
 
                     // if we took everything, storage has to be false
-                    if (!event.isCancelled()) clearStorageIfEmpty(event.getSlot(), slot);
+                    if (!event.isCancelled() && takesAll(event)) slot.storage = null;
                 }
             }
 
@@ -720,7 +741,7 @@ public class View implements InventoryHolder {
                     if (slot.action != null) slot.action.run(event);
 
                     // if we took everything, storage has to be false
-                    if (!event.isCancelled()) clearStorageIfEmpty(event.getSlot(), slot);
+                    if (!event.isCancelled() && takesAll(event)) slot.storage = null;
                 }
             }
 
@@ -744,7 +765,7 @@ public class View implements InventoryHolder {
                     if (slot.action != null) slot.action.run(event);
 
                     // if we took everything, storage has to be false
-                    if (!event.isCancelled()) clearStorageIfEmpty(event.getSlot(), slot);
+                    if (!event.isCancelled() && takesAll(event)) slot.storage = null;
                 }
             }
 
